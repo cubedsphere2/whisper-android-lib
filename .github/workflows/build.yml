@@ -20,7 +20,7 @@ jobs:
           ndk-version: r25c
           
       - name: Clone whisper.cpp
-        run: git clone https://github.com/ggerganov/whisper.cpp.git
+        run: git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git
         
       - name: Build libwhisper for arm64-v8a
         env:
@@ -37,6 +37,8 @@ jobs:
             -DWHISPER_BUILD_TESTS=OFF \
             -DBUILD_SHARED_LIBS=ON
           cmake --build . --config Release -j$(nproc)
+          echo "=== Built files ==="
+          find . -name "*.so" -type f
           
       - name: Build libwhisper for armeabi-v7a
         env:
@@ -69,11 +71,39 @@ jobs:
             -DWHISPER_BUILD_TESTS=OFF \
             -DBUILD_SHARED_LIBS=ON
           cmake --build . --config Release -j$(nproc)
+
+      - name: Debug - List all .so files
+        run: |
+          echo "=== All .so files in whisper.cpp ==="
+          find whisper.cpp -name "*.so" -type f
+          echo "=== Structure of build directories ==="
+          ls -la whisper.cpp/build/arm64-v8a/ || echo "arm64-v8a dir not found"
+          ls -la whisper.cpp/build/arm64-v8a/src/ || echo "arm64-v8a/src dir not found"
+
+      - name: Collect whisper libraries
+        run: |
+          mkdir -p release
+          # Find and copy whisper libraries for each ABI
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            # Find the library (might be in different locations)
+            lib=$(find whisper.cpp/build/$abi -name "libwhisper.so" -type f | head -1)
+            if [ -n "$lib" ]; then
+              cp "$lib" release/libwhisper_${abi}.so
+              echo "Copied $lib to release/libwhisper_${abi}.so"
+            else
+              echo "ERROR: libwhisper.so not found for $abi"
+              exit 1
+            fi
+          done
           
       - name: Build JNI bridge for arm64-v8a
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
+          # Copy whisper library to expected location
+          mkdir -p whisper.cpp/build/arm64-v8a
+          cp release/libwhisper_arm64-v8a.so whisper.cpp/build/arm64-v8a/libwhisper.so
+          
           cd jni
           mkdir -p build_arm64-v8a && cd build_arm64-v8a
           cmake .. \
@@ -87,6 +117,8 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
+          cp release/libwhisper_armeabi-v7a.so whisper.cpp/build/armeabi-v7a/libwhisper.so
+          
           cd jni
           mkdir -p build_armeabi-v7a && cd build_armeabi-v7a
           cmake .. \
@@ -100,6 +132,8 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
+          cp release/libwhisper_x86_64.so whisper.cpp/build/x86_64/libwhisper.so
+          
           cd jni
           mkdir -p build_x86_64 && cd build_x86_64
           cmake .. \
@@ -109,13 +143,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release
           cmake --build . --config Release
           
-      - name: Collect libraries
+      - name: Collect JNI libraries
         run: |
-          mkdir -p release
-          # Whisper core libraries
-          cp whisper.cpp/build/arm64-v8a/libwhisper.so release/libwhisper_arm64-v8a.so
-          cp whisper.cpp/build/armeabi-v7a/libwhisper.so release/libwhisper_armeabi-v7a.so
-          cp whisper.cpp/build/x86_64/libwhisper.so release/libwhisper_x86_64.so
           # JNI bridge libraries
           cp jni/build_arm64-v8a/libwhisper_jni.so release/libwhisper_jni_arm64-v8a.so
           cp jni/build_armeabi-v7a/libwhisper_jni.so release/libwhisper_jni_armeabi-v7a.so
