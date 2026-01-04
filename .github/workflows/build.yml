@@ -77,12 +77,15 @@ jobs:
         run: |
           mkdir -p release
           for abi in arm64-v8a armeabi-v7a x86_64; do
-            lib=$(find whisper.cpp/build/$abi -name "libwhisper.so" -type f | head -1)
-            if [ -n "$lib" ]; then
-              cp "$lib" release/libwhisper_${abi}.so
-              echo "Copied $lib to release/libwhisper_${abi}.so"
-            fi
+            echo "=== Collecting libraries for $abi ==="
+            # Find and copy all .so files (whisper and ggml dependencies)
+            find whisper.cpp/build/$abi -name "*.so" -type f | while read lib; do
+              basename=$(basename "$lib")
+              cp "$lib" "release/${basename%.so}_${abi}.so"
+              echo "Copied $lib to release/${basename%.so}_${abi}.so"
+            done
           done
+          echo "=== All release files ==="
           ls -la release/
           
       - name: Build JNI bridges
@@ -92,7 +95,12 @@ jobs:
           for abi in arm64-v8a armeabi-v7a x86_64; do
             echo "=== Building JNI for $abi ==="
             mkdir -p whisper.cpp/build/$abi
-            cp release/libwhisper_${abi}.so whisper.cpp/build/$abi/libwhisper.so
+            
+            # Copy whisper lib (might have already been there)
+            whisper_lib=$(find whisper.cpp/build/$abi -name "libwhisper.so" -type f | head -1)
+            if [ -n "$whisper_lib" ]; then
+              cp "$whisper_lib" whisper.cpp/build/$abi/libwhisper.so 2>/dev/null || true
+            fi
             
             mkdir -p jni/build_$abi
             cd jni/build_$abi
