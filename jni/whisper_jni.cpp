@@ -1,129 +1,69 @@
 #include <jni.h>
 #include <string>
-#include <android/log.h>
 #include "whisper.h"
-
-#define TAG "WhisperJNI"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_securenotes_app_util_WhisperJni_nativeCreateContext(
-        JNIEnv *env,
-        jobject thiz,
-        jstring modelPath) {
-    (void)thiz;
+Java_com_bberumen_securenotes_speech_WhisperJni_nativeCreateContext(
+    JNIEnv *env, jobject thiz, jstring model_path) {
+    const char *path = env->GetStringUTFChars(model_path, nullptr);
     
-    const char *path = env->GetStringUTFChars(modelPath, nullptr);
-    LOGI("Loading Whisper model from: %s", path);
+    // Use the proper API with context params
+    struct whisper_context_params cparams = whisper_context_default_params();
+    struct whisper_context *ctx = whisper_init_from_file_with_params(path, cparams);
     
-    struct whisper_context *ctx = whisper_init_from_file(path);
-    
-    env->ReleaseStringUTFChars(modelPath, path);
-    
-    if (ctx == nullptr) {
-        LOGE("Failed to initialize whisper context");
-        return 0;
-    }
-    
-    LOGI("Whisper context created successfully");
-    return (jlong) ctx;
+    env->ReleaseStringUTFChars(model_path, path);
+    return reinterpret_cast<jlong>(ctx);
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_securenotes_app_util_WhisperJni_nativeTranscribe(
-        JNIEnv *env,
-        jobject thiz,
-        jlong contextPtr,
-        jfloatArray samples,
-        jstring language,
-        jboolean translate) {
-    (void)thiz;
-    
-    if (contextPtr == 0) {
-        LOGE("Invalid context pointer");
+Java_com_bberumen_securenotes_speech_WhisperJni_nativeTranscribe(
+    JNIEnv *env, jobject thiz, jlong context_ptr, jfloatArray samples) {
+    struct whisper_context *ctx = reinterpret_cast<struct whisper_context *>(context_ptr);
+    if (!ctx) {
         return env->NewStringUTF("");
     }
+
+    jfloat *data = env->GetFloatArrayElements(samples, nullptr);
+    jsize len = env->GetArrayLength(samples);
     
-    struct whisper_context *ctx = (struct whisper_context *) contextPtr;
-    
-    // Get audio samples
-    jsize numSamples = env->GetArrayLength(samples);
-    jfloat *audioData = env->GetFloatArrayElements(samples, nullptr);
-    
-    LOGI("Transcribing %d samples", numSamples);
-    
-    // Get language
-    const char *lang = env->GetStringUTFChars(language, nullptr);
-    
-    // Set up whisper parameters
-    struct whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-    params.print_realtime = false;
-    params.print_progress = false;
-    params.print_timestamps = false;
-    params.print_special = false;
-    params.translate = translate;
-    params.language = (strcmp(lang, "auto") == 0) ? "en" : lang;
-    params.n_threads = 4;
+    // Set up transcription params with greedy sampling
+    struct whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+    wparams.print_progress = false;
+    wparams.print_special = false;
+    wparams.print_realtime = false;
+    wparams.print_timestamps = false;
+    wparams.single_segment = true;
+    wparams.language = "en";
     
     // Run transcription
-    int result = whisper_full(ctx, params, audioData, numSamples);
-    
-    env->ReleaseFloatArrayElements(samples, audioData, 0);
-    env->ReleaseStringUTFChars(language, lang);
+    int result = whisper_full(ctx, wparams, data, len);
+    env->ReleaseFloatArrayElements(samples, data, 0);
     
     if (result != 0) {
-        LOGE("Whisper transcription failed with code: %d", result);
         return env->NewStringUTF("");
     }
     
-    // Collect results
-    std::string fullText;
-    int numSegments = whisper_full_n_segments(ctx);
-    
-    for (int i = 0; i < numSegments; i++) {
-        const char *segmentText = whisper_full_get_segment_text(ctx, i);
-        if (segmentText) {
-            fullText += segmentText;
+    // Get result text
+    std::string text;
+    int n_segments = whisper_full_n_segments(ctx);
+    for (int i = 0; i < n_segments; ++i) {
+        const char *segment = whisper_full_get_segment_text(ctx, i);
+        if (segment) {
+            text += segment;
         }
     }
     
-    LOGI("Transcription complete: %d segments", numSegments);
-    
-    return env->NewStringUTF(fullText.c_str());
-}
-
-JNIEXPORT jstring JNICALL
-Java_com_securenotes_app_util_WhisperJni_nativeTranscribeFile(
-        JNIEnv *env,
-        jobject thiz,
-        jlong contextPtr,
-        jstring wavPath,
-        jstring language,
-        jboolean translate) {
-    (void)thiz;
-    (void)contextPtr;
-    (void)wavPath;
-    (void)language;
-    (void)translate;
-    
-    return env->NewStringUTF("");
+    return env->NewStringUTF(text.c_str());
 }
 
 JNIEXPORT void JNICALL
-Java_com_securenotes_app_util_WhisperJni_nativeFreeContext(
-        JNIEnv *env,
-        jobject thiz,
-        jlong contextPtr) {
-    (void)env;
-    (void)thiz;
-    
-    if (contextPtr != 0) {
-        struct whisper_context *ctx = (struct whisper_context *) contextPtr;
+Java_com_bberumen_securenotes_speech_WhisperJni_nativeFreeContext(
+    JNIEnv *env, jobject thiz, jlong context_ptr) {
+    struct whisper_context *ctx = reinterpret_cast<struct whisper_context *>(context_ptr);
+    if (ctx) {
         whisper_free(ctx);
-        LOGI("Whisper context freed");
     }
 }
 
