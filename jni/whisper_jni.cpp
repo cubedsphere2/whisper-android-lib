@@ -1,11 +1,12 @@
 #include <jni.h>
 #include <string>
+#include <cstring>
 #include "whisper.h"
 
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_bberumen_securenotes_speech_WhisperJni_nativeCreateContext(
+Java_com_securenotes_app_util_WhisperJni_nativeCreateContext(
     JNIEnv *env, jobject thiz, jstring model_path) {
     const char *path = env->GetStringUTFChars(model_path, nullptr);
     
@@ -18,8 +19,10 @@ Java_com_bberumen_securenotes_speech_WhisperJni_nativeCreateContext(
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_bberumen_securenotes_speech_WhisperJni_nativeTranscribe(
-    JNIEnv *env, jobject thiz, jlong context_ptr, jfloatArray samples) {
+Java_com_securenotes_app_util_WhisperJni_nativeTranscribe(
+    JNIEnv *env, jobject thiz, jlong context_ptr, jfloatArray samples, 
+    jstring language, jboolean translate) {
+    
     struct whisper_context *ctx = reinterpret_cast<struct whisper_context *>(context_ptr);
     if (!ctx) {
         return env->NewStringUTF("");
@@ -27,6 +30,7 @@ Java_com_bberumen_securenotes_speech_WhisperJni_nativeTranscribe(
 
     jfloat *data = env->GetFloatArrayElements(samples, nullptr);
     jsize len = env->GetArrayLength(samples);
+    const char *lang = env->GetStringUTFChars(language, nullptr);
     
     // Set up transcription params with greedy sampling
     struct whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
@@ -34,12 +38,21 @@ Java_com_bberumen_securenotes_speech_WhisperJni_nativeTranscribe(
     wparams.print_special = false;
     wparams.print_realtime = false;
     wparams.print_timestamps = false;
-    wparams.single_segment = true;
-    wparams.language = "en";
+    wparams.single_segment = false;
+    wparams.n_threads = 4;
+    wparams.translate = translate;
+    
+    // Handle "auto" language detection
+    if (strcmp(lang, "auto") == 0) {
+        wparams.language = nullptr;  // nullptr = auto-detect
+    } else {
+        wparams.language = lang;
+    }
     
     // Run transcription
     int result = whisper_full(ctx, wparams, data, len);
     env->ReleaseFloatArrayElements(samples, data, 0);
+    env->ReleaseStringUTFChars(language, lang);
     
     if (result != 0) {
         return env->NewStringUTF("");
@@ -58,8 +71,18 @@ Java_com_bberumen_securenotes_speech_WhisperJni_nativeTranscribe(
     return env->NewStringUTF(text.c_str());
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_securenotes_app_util_WhisperJni_nativeTranscribeFile(
+    JNIEnv *env, jobject thiz, jlong context_ptr, jstring wav_path,
+    jstring language, jboolean translate) {
+    
+    // File transcription not implemented - the Kotlin side reads the file 
+    // and passes samples to nativeTranscribe
+    return env->NewStringUTF("[File transcription not implemented - use sample array]");
+}
+
 JNIEXPORT void JNICALL
-Java_com_bberumen_securenotes_speech_WhisperJni_nativeFreeContext(
+Java_com_securenotes_app_util_WhisperJni_nativeFreeContext(
     JNIEnv *env, jobject thiz, jlong context_ptr) {
     struct whisper_context *ctx = reinterpret_cast<struct whisper_context *>(context_ptr);
     if (ctx) {
