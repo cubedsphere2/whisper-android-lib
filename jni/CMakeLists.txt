@@ -10,7 +10,7 @@ set(WHISPER_DIR ${CMAKE_SOURCE_DIR}/../whisper.cpp)
 # Add whisper library
 add_library(whisper SHARED IMPORTED)
 set_target_properties(whisper PROPERTIES
-    IMPORTED_LOCATION ${WHISPER_DIR}/build_android/${ANDROID_ABI}/libwhisper.so
+    IMPORTED_LOCATION ${WHISPER_DIR}/build/${ANDROID_ABI}/libwhisper.so
 )
 
 # JNI bridge library
