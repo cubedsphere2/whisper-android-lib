@@ -1,0 +1,138 @@
+name: Build Android Libraries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r25c
+          
+      - name: Clone whisper.cpp
+        run: git clone https://github.com/ggerganov/whisper.cpp.git
+        
+      - name: Build libwhisper for arm64-v8a
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          cd whisper.cpp
+          mkdir -p build/arm64-v8a && cd build/arm64-v8a
+          cmake ../.. \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWHISPER_BUILD_EXAMPLES=OFF \
+            -DWHISPER_BUILD_TESTS=OFF \
+            -DBUILD_SHARED_LIBS=ON
+          cmake --build . --config Release -j$(nproc)
+          
+      - name: Build libwhisper for armeabi-v7a
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          cd whisper.cpp
+          mkdir -p build/armeabi-v7a && cd build/armeabi-v7a
+          cmake ../.. \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=armeabi-v7a \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWHISPER_BUILD_EXAMPLES=OFF \
+            -DWHISPER_BUILD_TESTS=OFF \
+            -DBUILD_SHARED_LIBS=ON
+          cmake --build . --config Release -j$(nproc)
+          
+      - name: Build libwhisper for x86_64
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          cd whisper.cpp
+          mkdir -p build/x86_64 && cd build/x86_64
+          cmake ../.. \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=x86_64 \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWHISPER_BUILD_EXAMPLES=OFF \
+            -DWHISPER_BUILD_TESTS=OFF \
+            -DBUILD_SHARED_LIBS=ON
+          cmake --build . --config Release -j$(nproc)
+          
+      - name: Build JNI bridge for arm64-v8a
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          cd jni
+          mkdir -p build_arm64-v8a && cd build_arm64-v8a
+          cmake .. \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build . --config Release
+          
+      - name: Build JNI bridge for armeabi-v7a
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          cd jni
+          mkdir -p build_armeabi-v7a && cd build_armeabi-v7a
+          cmake .. \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=armeabi-v7a \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build . --config Release
+          
+      - name: Build JNI bridge for x86_64
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          cd jni
+          mkdir -p build_x86_64 && cd build_x86_64
+          cmake .. \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=x86_64 \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build . --config Release
+          
+      - name: Collect libraries
+        run: |
+          mkdir -p release
+          # Whisper core libraries
+          cp whisper.cpp/build/arm64-v8a/libwhisper.so release/libwhisper_arm64-v8a.so
+          cp whisper.cpp/build/armeabi-v7a/libwhisper.so release/libwhisper_armeabi-v7a.so
+          cp whisper.cpp/build/x86_64/libwhisper.so release/libwhisper_x86_64.so
+          # JNI bridge libraries
+          cp jni/build_arm64-v8a/libwhisper_jni.so release/libwhisper_jni_arm64-v8a.so
+          cp jni/build_armeabi-v7a/libwhisper_jni.so release/libwhisper_jni_armeabi-v7a.so
+          cp jni/build_x86_64/libwhisper_jni.so release/libwhisper_jni_x86_64.so
+          
+      - name: List release files
+        run: ls -la release/
+        
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-libs
+          path: release/
+          
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*
+          generate_release_notes: true

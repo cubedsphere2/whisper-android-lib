@@ -1,0 +1,12 @@
+# Build outputs
+build*/
+whisper.cpp/
+libs/
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
